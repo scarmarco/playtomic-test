@@ -57,8 +57,9 @@ function AuthProvider(props: AuthProviderProps): JSX.Element {
 
       if (storedTokens) {
         saveTokens(storedTokens)
+
         try {
-          const userResponse = await fetcher(
+          const response = await fetcher(
             'GET /v1/users/me',
             {},
             {
@@ -68,8 +69,45 @@ function AuthProvider(props: AuthProviderProps): JSX.Element {
             }
           )
 
-          if (userResponse.ok) {
-            const { userId, email, displayName } = userResponse.data
+          if (response.status === 403) {
+            const refreshResponse = await fetcher('POST /v3/auth/refresh', {
+              data: { refreshToken: storedTokens.refresh },
+            })
+
+            if (refreshResponse.ok) {
+              const {
+                accessToken,
+                refreshToken,
+                accessTokenExpiresAt,
+                refreshTokenExpiresAt,
+              } = refreshResponse.data
+
+              saveTokens({
+                access: accessToken,
+                accessExpiresAt: accessTokenExpiresAt,
+                refresh: refreshToken,
+                refreshExpiresAt: refreshTokenExpiresAt,
+              })
+
+              const userResponse = await fetcher(
+                'GET /v1/users/me',
+                {},
+                {
+                  headers: {
+                    authorization: `Bearer ${accessToken}`,
+                  },
+                }
+              )
+
+              if (userResponse.ok) {
+                const { userId, email, displayName } = userResponse.data
+                setCurrentUser({ userId, email, name: displayName })
+              }
+            }
+          }
+
+          if (response.ok) {
+            const { userId, email, displayName } = response.data
             setCurrentUser({ userId, email, name: displayName })
           }
         } catch (error) {
