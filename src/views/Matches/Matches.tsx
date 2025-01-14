@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import useSWR from 'swr'
 import Avatar from '@mui/material/Avatar'
 import AvatarGroup from '@mui/material/AvatarGroup'
@@ -16,6 +16,11 @@ import Typography from '@mui/material/Typography'
 import Paper from '@mui/material/Paper'
 import { useApiFetcher } from '@/lib/api'
 import { Match } from '@/lib/api-types'
+import {
+  printKeysAsHeaders,
+  triggerDownload,
+  valueToCSVFormat,
+} from '@/lib/utils'
 
 export interface MatchesProps {
   onLogoutRequest?: () => void
@@ -28,7 +33,13 @@ export function Matches(props: MatchesProps) {
   const fetcher = useApiFetcher()
   const query = useSWR(
     { page, size },
-    async ({ page, size }: { page: number, size: number}): Promise<{ matches: Match[], total: number }> => {
+    async ({
+      page,
+      size,
+    }: {
+      page: number
+      size: number
+    }): Promise<{ matches: Match[]; total: number }> => {
       const res = await fetcher('GET /v1/matches', { page, size })
 
       if (!res.ok) {
@@ -39,17 +50,63 @@ export function Matches(props: MatchesProps) {
       const total = totalCount ? Number.parseInt(totalCount) : res.data.length
       return { matches: res.data, total }
     },
-    { keepPreviousData: true, suspense: true },
+    { keepPreviousData: true, suspense: true }
   )
   const matches: Match[] = query.data.matches
   const total: number = query.data.total
 
+  const exportAllMatches = useCallback(async () => {
+    let currentPage = 0
+    const allMatches: Match[] = []
+    const totalPages = Math.ceil(total / 10)
+
+    try {
+      while (totalPages > currentPage) {
+        const res = await fetcher('GET /v1/matches', { page: currentPage })
+
+        if (res.ok) {
+          allMatches.push(...res.data)
+        }
+        currentPage++
+      }
+    } catch (error) {
+      console.error('error while fetching all matches', error)
+    }
+
+    const csvContent = `data:text/csv;charset=utf-8,${printKeysAsHeaders(
+      allMatches
+    )}\n${valueToCSVFormat(allMatches)}`
+
+    triggerDownload(csvContent, 'my_matches.csv')
+  }, [fetcher, total])
+
   return (
     <Stack {...otherProps}>
-      <Stack direction="row" marginBottom={2} justifyContent="space-between" alignItems="center">
+      <Stack
+        direction="row"
+        marginBottom={2}
+        justifyContent="space-between"
+        alignItems="center"
+      >
         <Typography variant="h2">Matches</Typography>
         <Stack direction="row" justifyContent="space-between">
-          <Button size="small" onClick={onLogoutRequest}>Logout</Button>
+          <Button size="small" onClick={onLogoutRequest}>
+            Logout
+          </Button>
+        </Stack>
+      </Stack>
+      <Stack direction="row" justifyContent="flex-end">
+        <Stack>
+          <Button
+            size="small"
+            onClick={() => {
+              exportAllMatches().catch((error) => {
+                console.error('error while exporting all matches', error)
+              })
+            }}
+          >
+            Export All Matches
+          </Button>
         </Stack>
       </Stack>
       <TableContainer component={Paper}>
@@ -90,7 +147,7 @@ export function Matches(props: MatchesProps) {
             )}
           </TableBody>
         </Table>
-        
+
       </TableContainer>
       <TablePagination
         component="div"
